@@ -111,39 +111,67 @@ async TableDataTopic2(req, res) {
       },
 
 async getDataForOneDayTopic1(req, res) {
-        // Mendapatkan tanggal saat ini
-        const currentDate = moment().format('YYYY-MM-DD');
+    try {
+        const query = `
+          WITH interval_data AS (
+            SELECT
+              date_trunc('minute', timestamp) - ((date_part('minute', timestamp)::int % 5) || ' minutes')::interval AS interval_start,
+              timestamp,
+              temperature,
+              humidity,
+              rainfall,
+              direction,
+              angle,
+              wind_speed,
+              ROW_NUMBER() OVER (PARTITION BY date_trunc('minute', timestamp) - ((date_part('minute', timestamp)::int % 5) || ' minutes')::interval ORDER BY timestamp DESC) AS rn
+            FROM topic1
+            WHERE timestamp::date BETWEEN CURRENT_DATE - INTERVAL '5 days' AND CURRENT_DATE
+          )
+          SELECT
+            interval_start,
+            temperature,
+            humidity,
+            rainfall,
+            direction,
+            angle,
+            wind_speed
+          FROM interval_data
+          WHERE rn = 1
+          ORDER BY interval_start DESC
+        `;
     
-        try {
-            const data = await dbase_rest.query(`
-                SELECT timestamp,temperature,humidity,rainfall,direction,angle,wind_speed
-                FROM topic1 
-                WHERE timestamp::date = $1 
-                ORDER BY timestamp DESC
-            `, [currentDate]);
+        const data = await dbase_rest.query(query);
     
-            if (data.rowCount > 0) {
-                const combinedArray = data.rows.map(row => {
-                    const { timestamp, ...rest } = row;
-                    return {
-                        timestamp: moment(timestamp).format("DD-MM-YY HH:mm:ss"),
-                        ...rest,
-                    };
-                });
+        if (data.rowCount > 0) {
+          const formattedData = data.rows.map(row => {
+            const { interval_start, ...rest } = row;
     
-                res.status(200).json({
-                    count: data.rowCount,
-                    result: combinedArray,
-                });
+            // Batasi nilai numerik menjadi 2 angka desimal
+            const roundedValues = Object.fromEntries(
+              Object.entries(rest).map(([key, value]) => {
+                return [key, typeof value === 'number' ? parseFloat(value.toFixed(2)) : value];
+              })
+            );
     
-                console.log(`[REST-API] GET DATA TOPIC 1 for ${currentDate}`);
-            } else {
-                res.status(404).json({ message: "No data found for today" });
-            }
-        } catch (error) {
-            console.error(error);
-            res.status(500).json({ message: 'Internal Server Error' });
+            return {
+              timestamp: moment(interval_start).format("DD-MM-YY HH:mm:ss"),
+              ...roundedValues,
+            };
+          });
+    
+          res.status(200).send({
+            count: data.rowCount,
+            result: formattedData,
+          });
+    
+          console.log("[REST-API] GET WEEKLY LAST DATA PER INTERVAL");
+        } else {
+          res.status(404).send("No data found in the days");
         }
+      } catch (error) {
+        console.error("[REST-API] Error fetching weekly last data per interval:", error);
+        res.status(500).send("Internal Server Error");
+      }
     },
 async getDataForOneDayTopic2(req, res) {
       // Mendapatkan tanggal saat ini
