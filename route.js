@@ -17,8 +17,8 @@ router.get('/getDataForSevenDaysTopic1', pertanian_http.getDataForSevenDaysTopic
 router.get('/getDataForSevenDaysTopic2', pertanian_http.getDataForSevenDaysTopic2);
 
 //getdataforonemonth
-router.get('/getDataForonemonthTopic1', pertanian_http.getDataForonemonthTopic1);
-router.get('/getDataForonemonthTopic2', pertanian_http.getDataForonemonthTopic2);
+router.get('/getDataForonemonthTopic1', pertanian_http.getDataForOneMonthTopic1);
+router.get('/getDataForonemonthTopic2', pertanian_http.getDataForOneMonthTopic2);
 
 
 
