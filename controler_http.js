@@ -18,7 +18,7 @@ module.exports = {
    // Respond request to give latest 100 data
     
 async getDataTopic1(req, res) {
-    const data = await dbase_rest.query(`SELECT id,timestamp,temperature,humidity,rainfall,direction,angle,wind_speed FROM topic1 ORDER BY timestamp DESC LIMIT 1`);
+    const data = await dbase_rest.query(`SELECT id,timestamp,temperature,humidity,rainfall,direction,angle,wind_speed,irradiation FROM topic1 ORDER BY timestamp DESC LIMIT 1`);
   
     if (data.rowCount > 0) {
         const combinedArray = data.rows.map(row => {
@@ -41,7 +41,9 @@ async getDataTopic1(req, res) {
     }
     },
 async getDataTopic2(req, res) {
-           const data = await dbase_rest.query(`SELECT id,timestamp,hum_dht22,temp_dht22 FROM topic2 ORDER BY timestamp DESC LIMIT 1`);
+           const data = await dbase_rest.query(`SELECT id,timestamp,hum_dht22,temp_dht22 FROM topic2
+           WHERE hum_dht22 IS NOT NULL AND temp_dht22 IS NOT NULL
+           ORDER BY timestamp DESC LIMIT 1`);
             
            if (data.rowCount > 0) {
             const combinedArray = data.rows.map(row => {
@@ -64,7 +66,7 @@ async getDataTopic2(req, res) {
         }
     },
 async TableDataTopic1(req, res) {
-      const data = await dbase_rest.query(`SELECT id,timestamp,temperature,humidity,rainfall,direction,angle,wind_speed FROM topic1 ORDER BY timestamp DESC LIMIT 10`);
+      const data = await dbase_rest.query(`SELECT id,timestamp,temperature,humidity,rainfall,direction,angle,wind_speed,irradiation FROM topic1 ORDER BY timestamp DESC LIMIT 10`);
     
       if (data.rowCount > 0) {
           const combinedArray = data.rows.map(row => {
@@ -123,9 +125,10 @@ async getDataForOneDayTopic1(req, res) {
               direction,
               angle,
               wind_speed,
+              irradiation,
               ROW_NUMBER() OVER (PARTITION BY date_trunc('minute', timestamp) - ((date_part('minute', timestamp)::int % 5) || ' minutes')::interval ORDER BY timestamp DESC) AS rn
             FROM topic1
-            WHERE timestamp::date BETWEEN CURRENT_DATE - INTERVAL '5 days' AND CURRENT_DATE
+            WHERE timestamp::date BETWEEN CURRENT_DATE - INTERVAL '1 days' AND CURRENT_DATE
           )
           SELECT
             interval_start,
@@ -134,7 +137,8 @@ async getDataForOneDayTopic1(req, res) {
             rainfall,
             direction,
             angle,
-            wind_speed
+            wind_speed,
+            irradiation
           FROM interval_data
           WHERE rn = 1
           ORDER BY interval_start DESC
@@ -174,40 +178,60 @@ async getDataForOneDayTopic1(req, res) {
       }
     },
 async getDataForOneDayTopic2(req, res) {
-      // Mendapatkan tanggal saat ini
-      const currentDate = moment().format('YYYY-MM-DD');
-  
-      try {
-          const data = await dbase_rest.query(`
-              SELECT timestamp,hum_dht22,temp_dht22 
-              FROM topic2
-              WHERE timestamp::date = $1 
-              ORDER BY timestamp DESC
-          `, [currentDate]);
-  
-          if (data.rowCount > 0) {
-              const combinedArray = data.rows.map(row => {
-                  const { timestamp, ...rest } = row;
-                  return {
-                      timestamp: moment(timestamp).format("DD-MM-YY HH:mm:ss"),
-                      ...rest,
-                  };
-              });
-  
-              res.status(200).json({
-                  count: data.rowCount,
-                  result: combinedArray,
-              });
-  
-              console.log(`[REST-API] GET DATA TOPIC 2 for ${currentDate}`);
-          } else {
-              res.status(404).json({ message: "No data found for today" });
-          }
+    try {
+        const query = `
+        WITH interval_data AS (
+            SELECT
+              date_trunc('minute', timestamp) - ((date_part('minute', timestamp)::int % 5) || ' minutes')::interval AS interval_start,
+              timestamp,
+              hum_dht22,
+              temp_dht22,
+              ROW_NUMBER() OVER (PARTITION BY date_trunc('minute', timestamp) - ((date_part('minute', timestamp)::int % 5) || ' minutes')::interval ORDER BY timestamp DESC) AS rn
+            FROM topic2
+            WHERE timestamp::date BETWEEN CURRENT_DATE - INTERVAL '1 days' AND CURRENT_DATE
+          )
+          SELECT
+            interval_start,
+            hum_dht22,
+            temp_dht22
+          FROM interval_data
+          WHERE rn = 1
+          ORDER BY interval_start DESC
+        `;
+    
+        const data = await dbase_rest.query(query);
+    
+        if (data.rowCount > 0) {
+          const formattedData = data.rows.map(row => {
+            const { interval_start, ...rest } = row;
+    
+            // Batasi nilai numerik menjadi 2 angka desimal
+            const roundedValues = Object.fromEntries(
+              Object.entries(rest).map(([key, value]) => {
+                return [key, typeof value === 'number' ? parseFloat(value.toFixed(2)) : value];
+              })
+            );
+    
+            return {
+              timestamp: moment(interval_start).format("DD-MM-YY HH:mm:ss"),
+              ...roundedValues,
+            };
+          });
+    
+          res.status(200).send({
+            count: data.rowCount,
+            result: formattedData,
+          });
+    
+          console.log("[REST-API] GET WEEKLY LAST DATA PER INTERVAL");
+        } else {
+          res.status(404).send("No data found in the days");
+        }
       } catch (error) {
-          console.error(error);
-          res.status(500).json({ message: 'Internal Server Error' });
+        console.error("[REST-API] Error fetching weekly last data per interval:", error);
+        res.status(500).send("Internal Server Error");
       }
-  },
+    },
 
   async getDataForSevenDaysTopic1(req, res) {
     try {
@@ -222,6 +246,7 @@ async getDataForOneDayTopic2(req, res) {
             direction,
             angle,
             wind_speed,
+            irradiation,
             ROW_NUMBER() OVER (PARTITION BY date_trunc('minute', timestamp) - ((date_part('minute', timestamp)::int % 30) || ' minutes')::interval ORDER BY timestamp DESC) AS rn
           FROM topic1
           WHERE timestamp::date BETWEEN CURRENT_DATE - INTERVAL '7 days' AND CURRENT_DATE
@@ -233,7 +258,8 @@ async getDataForOneDayTopic2(req, res) {
           rainfall,
           direction,
           angle,
-          wind_speed
+          wind_speed,
+          irradiation
         FROM interval_data
         WHERE rn = 1
         ORDER BY interval_start DESC
@@ -399,6 +425,7 @@ async getDataForOneMonthTopic1(req, res) {
               direction,
               angle,
               wind_speed,
+              irradiation,
               ROW_NUMBER() OVER (PARTITION BY date_trunc('minute', timestamp) - ((date_part('minute', timestamp)::int % 60) || ' minutes')::interval ORDER BY timestamp DESC) AS rn
             FROM topic1
             WHERE timestamp::date BETWEEN CURRENT_DATE - INTERVAL '30 days' AND CURRENT_DATE
@@ -410,7 +437,8 @@ async getDataForOneMonthTopic1(req, res) {
             rainfall,
             direction,
             angle,
-            wind_speed
+            wind_speed,
+            irradiation
           FROM interval_data
           WHERE rn = 1
           ORDER BY interval_start DESC

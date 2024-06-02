@@ -20,7 +20,7 @@ const api = express();
 api.use(bodyParser.urlencoded({ extended: false }))
 api.use(bodyParser.json())
 api.use(cors({
-    origin:['http://localhost/3332','*']
+    origin:['http://localhost/3000','*']
 }));
 
 
@@ -33,7 +33,8 @@ dbase_climate.query(`CREATE TABLE IF NOT EXISTS topic1(
   rainfall FLOAT,
   direction VARCHAR(255),
   angle FLOAT,
-  wind_speed FLOAT)
+  wind_speed FLOAT,
+  irradiation FLOAT)
   `, function(err, result){
     console.log("Database Connected");
   });
